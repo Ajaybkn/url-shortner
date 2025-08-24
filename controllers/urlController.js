@@ -1,12 +1,14 @@
+import Counter from "../models/Counter.js";
 import Url from "../models/Url.js";
-import { nanoid } from "nanoid";
+
+import { base62Encode } from "../utils/base62.js";
 
 // POST /shorten
 export const shortenUrl = async (req, res) => {
 	try {
 		const { longUrl } = req.body;
 
-		// check if same URL already exists
+		// Check if the same URL already exists
 		let existing = await Url.findOne({ longUrl });
 		if (existing) {
 			return res.json({
@@ -15,17 +17,22 @@ export const shortenUrl = async (req, res) => {
 			});
 		}
 
-		// create new shortId
-		const shortId = nanoid(9);
+		// Get the next counter value atomically
+		const counterDoc = await Counter.findByIdAndUpdate(
+			{ _id: "url_counter" },
+			{ $inc: { seq: 1 } },
+			{ new: true, upsert: true }
+		);
+
+		// Generate shortId from the counter value
+		const shortId = base62Encode(counterDoc.seq);
 
 		const newUrl = await Url.create({
 			longUrl,
 			shortId,
-			analytics: {
-				clickCount: 0,
-				lastAccessed: null,
-				referrers: [],
-			},
+			clickCount: 0,
+			lastAccessed: null,
+			referrers: {},
 		});
 
 		res.json({
@@ -46,11 +53,12 @@ export const redirectUrl = async (req, res) => {
 
 		if (!urlDoc) return res.status(404).json({ error: "URL not found" });
 
-		// update analytics
-		urlDoc.analytics.clickCount += 1;
-		urlDoc.analytics.lastAccessed = new Date();
+		// Update analytics
+		urlDoc.clickCount += 1;
+		urlDoc.lastAccessed = new Date();
+
 		const referrer = req.get("referer") || "direct";
-		urlDoc.analytics.referrers.push(referrer);
+		urlDoc.referrers.set(referrer, (urlDoc.referrers.get(referrer) || 0) + 1);
 
 		await urlDoc.save();
 
@@ -68,20 +76,16 @@ export const getStats = async (req, res) => {
 
 		if (!urlDoc) return res.status(404).json({ error: "URL not found" });
 
-		// top 5 referrers
-		const refCount = {};
-		urlDoc.analytics.referrers.forEach((r) => {
-			refCount[r] = (refCount[r] || 0) + 1;
-		});
-
+		// Convert referrers map to array and get top 5
+		const refCount = Object.fromEntries(urlDoc.referrers);
 		const topReferrers = Object.entries(refCount)
 			.sort((a, b) => b[1] - a[1])
 			.slice(0, 5)
 			.map(([ref]) => ref);
 
 		res.json({
-			clickCount: urlDoc?.analytics?.clickCount,
-			lastAccessed: urlDoc.analytics.lastAccessed,
+			clickCount: urlDoc.clickCount,
+			lastAccessed: urlDoc.lastAccessed,
 			topReferrers,
 		});
 	} catch (err) {
