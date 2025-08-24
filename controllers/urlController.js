@@ -1,14 +1,13 @@
-import Counter from "../models/Counter.js";
-import Url from "../models/Url.js";
-
+import Url from "../models/url.js";
 import { base62Encode } from "../utils/base62.js";
+import { generateSnowflakeId } from "../utils/snowflake.js";
 
 // POST /shorten
 export const shortenUrl = async (req, res) => {
 	try {
 		const { longUrl } = req.body;
 
-		// Check if the same URL already exists
+		// Check if URL already exists
 		let existing = await Url.findOne({ longUrl });
 		if (existing) {
 			return res.json({
@@ -17,15 +16,9 @@ export const shortenUrl = async (req, res) => {
 			});
 		}
 
-		// Get the next counter value atomically
-		const counterDoc = await Counter.findByIdAndUpdate(
-			{ _id: "url_counter" },
-			{ $inc: { seq: 1 } },
-			{ new: true, upsert: true }
-		);
-
-		// Generate shortId from the counter value
-		const shortId = base62Encode(counterDoc.seq);
+		// Generate unique shortId
+		const snowflakeId = generateSnowflakeId();
+		const shortId = base62Encode(snowflakeId);
 
 		const newUrl = await Url.create({
 			longUrl,
@@ -46,14 +39,13 @@ export const shortenUrl = async (req, res) => {
 
 // GET /:shortId → redirect
 // GET /:shortId → redirect
+// GET /:shortId → redirect
 export const redirectUrl = async (req, res) => {
 	try {
 		const { shortId } = req.params;
 		const urlDoc = await Url.findOne({ shortId });
-
 		if (!urlDoc) return res.status(404).json({ error: "URL not found" });
 
-		// Update analytics
 		urlDoc.clickCount += 1;
 		urlDoc.lastAccessed = new Date();
 
@@ -61,24 +53,21 @@ export const redirectUrl = async (req, res) => {
 		urlDoc.referrers.set(referrer, (urlDoc.referrers.get(referrer) || 0) + 1);
 
 		await urlDoc.save();
-
 		res.redirect(urlDoc.longUrl);
 	} catch (err) {
 		res.status(500).json({ error: err.message });
 	}
 };
 
-// GET /stats/:shortId → stats
+// GET /stats/:shortId → analytics
 export const getStats = async (req, res) => {
 	try {
 		const { shortId } = req.params;
 		const urlDoc = await Url.findOne({ shortId });
-
 		if (!urlDoc) return res.status(404).json({ error: "URL not found" });
 
-		// Convert referrers map to array and get top 5
-		const refCount = Object.fromEntries(urlDoc.referrers);
-		const topReferrers = Object.entries(refCount)
+		const refArray = Array.from(urlDoc.referrers.entries());
+		const topReferrers = refArray
 			.sort((a, b) => b[1] - a[1])
 			.slice(0, 5)
 			.map(([ref]) => ref);
