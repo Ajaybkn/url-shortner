@@ -1,4 +1,4 @@
-import Url from "../models/url.js";
+import Url from "../models/Url.js";
 import { base62Encode } from "../utils/base62.js";
 import { generateSnowflakeId } from "../utils/snowflake.js";
 
