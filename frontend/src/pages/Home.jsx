@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-const API_ENDPOINT = "http://localhost:5001/shorten";
+// const API_ENDPOINT = "http://localhost:5001/shorten";
+const API_ENDPOINT = "https://url-shortner-ouml.onrender.com/shorten";
 
 const isValidUrl = (value) => {
 	try {
